@@ -1,0 +1,19 @@
+# Data volumes (Không nên up dữ liệu thực tế lên Git)
+logs/
+*.jar
+airflow/jars/
+kafka_connect_data/
+minio_storage/
+nessie_data/
+postgres_airflow_data/
+postgres_data/
+mlflow/
+dataverse_files/
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.ipynb_checkpoints/

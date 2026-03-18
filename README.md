@@ -1,0 +1,3 @@
+- Compose up zookerper bị lỗi không sao
+- Tạo 2 thư mục landing, processed trong notebooks/dataverse_files sao khi compose up docker
+- Bỏ 2 file survey.csv, amazon-purchases.csv vào thư mục landing

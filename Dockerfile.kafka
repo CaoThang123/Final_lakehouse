@@ -1,0 +1,10 @@
+FROM confluentinc/cp-kafka-connect:latest
+
+# Cài đặt Plugin Spooldir (để đọc file CSV từ thư mục)
+RUN confluent-hub install --no-prompt jcustenborder/kafka-connect-spooldir:latest
+
+# Cài đặt Plugin S3 (để ghi dữ liệu từ Kafka xuống MinIO nếu cần)
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:latest
+
+# Cài đặt Plugin biến đổi dữ liệu (Transformations)
+RUN confluent-hub install --no-prompt confluentinc/connect-transforms:latest

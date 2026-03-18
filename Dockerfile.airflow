@@ -1,0 +1,27 @@
+FROM apache/airflow:2.8.0-python3.11
+USER root
+
+# Cài Java cho PySpark
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openjdk-17-jdk-headless && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Thiết lập biến môi trường Java và PySpark
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+ENV PYSPARK_PYTHON=python3
+ENV PYSPARK_DRIVER_PYTHON=python3
+# Tạo thư mục jars và tự động tải các file cần thiết
+RUN mkdir -p /opt/airflow/jars && \
+    curl -o /opt/airflow/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.5.0/iceberg-spark-runtime-3.5_2.12-1.5.0.jar && \
+    curl -o /opt/airflow/jars/hadoop-aws-3.3.4.jar https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar && \
+    curl -o /opt/airflow/jars/aws-java-sdk-bundle-1.12.262.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
+# Quay về user airflow
+USER airflow
+RUN pip install --no-cache-dir kafka-python boto3 pandas
+# Cài đặt các gói Python cần thiết cho PySpark
+COPY requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.0/constraints-3.11.txt" && \
+    # Sau đó cài PySpark riêng
+    pip install pyspark==3.5.1
