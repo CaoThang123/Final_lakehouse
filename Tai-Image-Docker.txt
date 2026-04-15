@@ -1,0 +1,24 @@
+# B1 : 
+docker pull postgres:15
+docker pull minio/minio
+docker pull ghcr.io/projectnessie/nessie:0.105.6
+docker pull ghcr.io/mlflow/mlflow:v2.14.1
+# B2:
+docker pull confluentinc/cp-zookeeper:7.5.0
+docker pull confluentinc/cp-kafka:7.5.0
+# B3 :
+
+# Tải Airflow (Thằng đang báo lỗi trong hình của bạn)
+docker pull apache/airflow:2.8.0
+
+# Tải Spark Master
+docker pull apache/spark:3.5.1
+
+# Tải Dremio
+docker pull dremio/dremio-oss:latest
+
+# Cuối cùng là gã khổng lồ 1.8GB (Chạy cuối cùng khi mạng rảnh nhất)
+docker pull jupyter/pyspark-notebook
+
+# B4 :
+docker compose up -d

@@ -1,4 +1,4 @@
-FROM apache/airflow:2.8.0-python3.11
+FROM apache/airflow:2.8.0-python3.8
 USER root
 
 # Cài Java cho PySpark
@@ -9,6 +9,7 @@ RUN apt-get update && \
 # Thiết lập biến môi trường Java và PySpark
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH=$JAVA_HOME/bin:$PATH
+
 ENV PYSPARK_PYTHON=python3
 ENV PYSPARK_DRIVER_PYTHON=python3
 # Tạo thư mục jars và tự động tải các file cần thiết
@@ -22,6 +23,6 @@ RUN pip install --no-cache-dir kafka-python boto3 pandas
 # Cài đặt các gói Python cần thiết cho PySpark
 COPY requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt \
-    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.0/constraints-3.11.txt" && \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.0/constraints-3.8.txt" && \
     # Sau đó cài PySpark riêng
     pip install pyspark==3.5.1
