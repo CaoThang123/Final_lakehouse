@@ -31,8 +31,10 @@ def process_survey():
         try:
             df = spark.read.format("csv") \
                 .option("header", "true") \
-                .option("sep", ";") \
+                .option("sep", ",") \
                 .option("inferSchema", "true") \
+                .option("quote", '"') \
+                .option("escape", '"') \
                 .load(bronze_path)
             
             # ÉP SPARK ĐỌC FILE NGAY LẬP TỨC VÀO BỘ NHỚ (Tránh lỗi FileNotFound sau này)

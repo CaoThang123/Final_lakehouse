@@ -1,14 +1,20 @@
 from airflow import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from datetime import datetime
+from datetime import timedelta
 
 with DAG(
     dag_id='3.dag_silver_to_gold',
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,  # Để None để bạn chủ động Trigger tay hoặc gọi sau DAG Kafka
     catchup=False,
-    tags=['iceberg', 'gold', 'nessie']
-) as dag:
+    tags=['iceberg', 'gold', 'nessie'],
+    default_args={
+        "retries": 2,
+        "retry_delay": timedelta(minutes=5),
+        "execution_timeout": timedelta(minutes=30)  # 🔥 FIX CHÍNH
+    }
+) as dag :
 
     sync_gold_layer = SparkSubmitOperator(
         task_id='execute_process_gold_layer',
