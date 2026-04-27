@@ -34,7 +34,7 @@ def purchase_silver_stream():
         StructField("Survey ResponseID", StringType(), True)
     ])
 
-    # 3. Tạo bảng Silver (clean)
+    # 3. Tạo bảng Silver (nếu chưa có)
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.silver_db")
 
     spark.sql("""
@@ -54,14 +54,16 @@ def purchase_silver_stream():
     """)
 
     # 4. Đọc Bronze stream
+    # Lưu ý: Thắng nên dùng tên bảng mới nhất (raw_v2 hoặc raw tùy theo bước dọn dẹp trước đó)
     df_bronze = spark.readStream \
         .format("iceberg") \
         .load("nessie.bronze_db.amazon_purchase_raw")
 
-    # 5. Parse JSON + làm sạch
+    # 5. Parse JSON + làm sạch dữ liệu
     df_clean = df_bronze.select(
         from_json(col("kafka_value"), kafka_schema).alias("data")
     ).select("data.*") \
+     .replace(['"NaN"', 'NaN', 'nan', '"nan"'], None) \
      .dropna() \
      .select(
         to_date(col("Order Date"), "yyyy-MM-dd").alias("order_date"),
@@ -74,24 +76,28 @@ def purchase_silver_stream():
         col("Survey ResponseID").alias("survey_id")
      ).withColumn("processed_at", current_timestamp())
 
-    # 🔥 Biến đếm batch rỗng
+    # 🔥 Logic Batch
     empty_batch_count = {"count": 0}
-    MAX_EMPTY = 2  # cho nhẹ hơn Bronze
+    MAX_EMPTY = 2 
 
     def merge_silver(batch_df, batch_id):
-        if batch_df.rdd.isEmpty():
+        # SỬA: Dùng count() thay vì rdd.isEmpty() để tránh Python Version Mismatch
+        row_count = batch_df.count()
+        
+        if row_count == 0:
             empty_batch_count["count"] += 1
-            print(f"⚠ Batch {batch_id} rỗng ({empty_batch_count['count']})")
-
+            print(f"⚠ Batch {batch_id} rỗng ({empty_batch_count['count']}/{MAX_EMPTY})")
             if empty_batch_count["count"] >= MAX_EMPTY:
-                print("✅ DONE - Không còn dữ liệu, dừng stream!")
+                print("✅ DONE - Hết dữ liệu cũ, dừng stream!")
                 query.stop()
             return
         else:
             empty_batch_count["count"] = 0
 
+        # Tạo view tạm để MERGE
         batch_df.createOrReplaceTempView("tmp_silver")
 
+        # Thực hiện MERGE INTO
         batch_df.sparkSession.sql("""
             MERGE INTO nessie.silver_db.amazon_purchase_silver t
             USING tmp_silver s
@@ -101,21 +107,26 @@ def purchase_silver_stream():
             WHEN MATCHED THEN UPDATE SET *
             WHEN NOT MATCHED THEN INSERT *
         """)
+        print(f"✔ Batch {batch_id} (có {row_count} dòng) merged vào Silver thành công.")
 
-        print(f"✔ Batch {batch_id} merged vào Silver")
-
-    # 🚀 start stream
+    # 🚀 Khởi chạy Stream với Trigger AvailableNow (Phù hợp nhất cho Airflow)
     query = df_clean.writeStream \
         .foreachBatch(merge_silver) \
-        .option("checkpointLocation", "s3a://silver/checkpoints/silver_purchase_v1") \
-        .trigger(processingTime="5 seconds") \
+        .option("checkpointLocation", "s3a://silver/checkpoints/silver_purchase_v1_final") \
+        .trigger(availableNow=True) \
         .start()
 
-    query.awaitTermination()
-    
-    # In tổng kết
-    final_total = spark.read.table("nessie.silver_db.amazon_purchase_silver").count()
-    print(f"📊 Hoàn tất! Tổng số dòng trong kho Silver: {final_total}")
+    # Đợi Job hoàn tất
+    try:
+        query.awaitTermination()
+        
+        # In tổng kết (Chạy sau khi query dừng)
+        final_total = spark.read.table("nessie.silver_db.amazon_purchase_silver").count()
+        print("-" * 50)
+        print(f"📊 TỔNG KẾT: Kho Silver hiện tại có {final_total} dòng.")
+        print("-" * 50)
+    except Exception as e:
+        print(f"Stream kết thúc: {e}")
 
 if __name__ == "__main__":
     purchase_silver_stream()

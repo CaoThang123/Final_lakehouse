@@ -21,11 +21,8 @@ def purchase_bronze_stream():
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .getOrCreate()
 
-    
-    # Create DB + table
+    # 1. Tạo Database và Bảng nếu chưa có (KHÔNG DROP)
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.bronze_db")
-
-    spark.sql("DROP TABLE IF EXISTS nessie.bronze_db.amazon_purchase_raw")
     
     spark.sql("""
         CREATE TABLE IF NOT EXISTS nessie.bronze_db.amazon_purchase_raw (
@@ -34,13 +31,13 @@ def purchase_bronze_stream():
         ) USING iceberg
     """)
 
-    # Read from Kafka
+    # 2. Đọc dữ liệu từ Kafka
     df_raw = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", "kafka:29092") \
         .option("subscribe", "amazon_purchases") \
         .option("startingOffsets", "earliest") \
-        .option("kafka.group.id", "reset_data_batch_cuoi_v99") \
+        .option("kafka.group.id", "bronze_consumer_group_v1") \
         .load()
 
     df_bronze = df_raw.selectExpr(
@@ -48,34 +45,48 @@ def purchase_bronze_stream():
         "timestamp AS kafka_timestamp"
     )
 
-    # 🔥 Biến đếm batch rỗng
     empty_batch_count = {"count": 0}
-    MAX_EMPTY = 3  # sau 3 batch rỗng thì dừng
+    MAX_EMPTY = 3  
 
     def process_batch(batch_df, batch_id):
-        if batch_df.rdd.isEmpty():
+        row_count = batch_df.count()
+        
+        if row_count == 0:
             empty_batch_count["count"] += 1
-            print(f"⚠ Batch {batch_id} rỗng ({empty_batch_count['count']})")
-
             if empty_batch_count["count"] >= MAX_EMPTY:
-                print("✅ DONE - Không còn dữ liệu, dừng stream!")
-                query.stop()   # 👈 stop stream
+                print("✅ Hết dữ liệu mới, dừng stream.")
+                query.stop()  
+            return
         else:
             empty_batch_count["count"] = 0
-            batch_df.write \
-                .format("iceberg") \
-                .mode("append") \
-                .save("nessie.bronze_db.amazon_purchase_raw")
+            
+            # 3. Dùng MERGE INTO để tránh trùng lặp dữ liệu (Idempotent)
+            # Chúng ta check dựa trên nội dung và thời gian của kafka
+            batch_df.createOrReplaceTempView("batch_view")
+            
+            batch_df.sparkSession.sql("""
+                MERGE INTO nessie.bronze_db.amazon_purchase_raw t
+                USING batch_view s
+                ON t.kafka_value = s.kafka_value 
+                   AND t.kafka_timestamp = s.kafka_timestamp
+                WHEN NOT MATCHED THEN 
+                   INSERT *
+            """)
+            print(f"✔ Batch {batch_id} (có {row_count} dòng) đã được MERGE vào Bronze.")
 
+    # 4. Start Stream với availableNow
     query = df_bronze.writeStream \
         .foreachBatch(process_batch) \
-        .option("checkpointLocation", "s3a://bronze/checkpoints/bronze_purchase") \
+        .option("checkpointLocation", "s3a://bronze/checkpoints/bronze_purchase_final") \
+        .trigger(availableNow=True) \
         .start()
 
     try:
         query.awaitTermination()
-    except StreamingQueryException:
-        print("Stream stopped.")
+        final_total = spark.read.table("nessie.bronze_db.amazon_purchase_raw").count()
+        print(f"📊 TỔNG KẾT: Tầng Bronze hiện có {final_total} dòng.")
+    except Exception as e:
+        print(f"Stream stopped: {e}")
 
 if __name__ == "__main__":
     purchase_bronze_stream()
