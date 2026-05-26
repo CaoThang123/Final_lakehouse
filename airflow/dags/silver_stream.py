@@ -62,6 +62,7 @@ def purchase_silver_stream():
     df_clean = df_bronze.select(
         from_json(col("kafka_value"), kafka_schema).alias("data")
     ).select("data.*") \
+     .replace(['"NaN"', 'NaN', 'nan', '"nan"'], None) \
      .dropna() \
      .select(
         to_date(col("Order Date"), "yyyy-MM-dd").alias("order_date"),
